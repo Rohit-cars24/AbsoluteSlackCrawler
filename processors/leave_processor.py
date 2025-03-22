@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from flask import jsonify
 import requests
+import re
 from slack_sdk import WebClient
 from google import genai
 from google.genai import types
@@ -8,6 +9,7 @@ from google.genai import types
 from processors.base_processor import BaseProcessor
 from config import get_config
 from database import get_mongo_client
+from dictionary.leave_keywords_dictionary import KEYWORD_PATTERNS, DATE_PATTERNS
 
 class LeaveProcessor(BaseProcessor):
     """Processor for leave-related messages"""
@@ -28,11 +30,77 @@ class LeaveProcessor(BaseProcessor):
         
         # Set up Gemini client
         self.ai_client = genai.Client(api_key=config["GEMINI_API_KEY"])
+        
+        self.keyword_patterns = KEYWORD_PATTERNS
+        self.date_patterns = DATE_PATTERNS
+    
+    def classify_message_by_keywords(self, message):
+        """Classify message based on keywords"""
+        message_lower = message.lower()
+        
+        # Check each category's patterns
+        for category, patterns in self.keyword_patterns.items():
+            for pattern in patterns:
+                if re.search(pattern, message_lower):
+                    # Extract dates if a category is found
+                    dates = self.extract_dates(message)
+                    # Extract reason (simple implementation - everything after "reason" or "because")
+                    reason_match = re.search(r'(?:reason|because|due to|as)\s*:?\s*(.*)', message_lower)
+                    reason = reason_match.group(1).strip() if reason_match else ""
+                    
+                    return {
+                        "request_type": category,
+                        "dates": dates,
+                        "reason": reason
+                    }
+        
+        return None
+    
+    def extract_dates(self, message):
+        """Extract dates from a message"""
+        message_lower = message.lower()
+        today = datetime.now()
+        dates = []
+        
+        # Handle today/tomorrow
+        if "today" in message_lower:
+            dates.append(today.strftime("%Y-%m-%d"))
+        if any(word in message_lower for word in ["tomorrow", "tmrw"]):
+            tomorrow = today.replace(day=today.day + 1)
+            dates.append(tomorrow.strftime("%Y-%m-%d"))
+        
+        # Example: Detect DD/MM/YYYY or DD/MM
+        date_matches = re.finditer(r'\b(\d{1,2})[/\-\.](\d{1,2})(?:[/\-\.](?:20)?(\d{2}))?\b', message_lower)
+        for match in date_matches:
+            day, month = int(match.group(1)), int(match.group(2))
+            year = int(match.group(3)) if match.group(3) else today.year
+            if year < 100:  # Handle two-digit years
+                year += 2000
+            try:
+                # Validate date
+                if 1 <= day <= 31 and 1 <= month <= 12:
+                    date_str = f"{year}-{month:02d}-{day:02d}"
+                    if date_str not in dates:
+                        dates.append(date_str)
+            except ValueError:
+                pass
+                
+        
+        return dates
     
     def classify_message(self, message, user_id):
-        """Classify leave messages using Gemini API"""
+        """Classify leave messages using keywords first, fall back to Gemini API"""
+        # First try keyword classification
+        keyword_result = self.classify_message_by_keywords(message)
+        
+        if keyword_result and keyword_result["request_type"] != "Useless" and keyword_result["dates"]:
+            print(f"Message classified by keywords as {keyword_result['request_type']}")
+            return keyword_result
+        
+        # Fall back to Gemini API for more complex messages
+        print("Keyword classification failed or insufficient. Using Gemini API...")
         prompt = f"""
-            You are an AI assistant analyzing Slack messages related to leave and work status updates.
+          You are an AI assistant analyzing Slack messages related to leave and work status updates.
 
             **Your task:**
             1. **Classify the message into one of the following categories:**
@@ -78,16 +146,20 @@ class LeaveProcessor(BaseProcessor):
             - **Message:** "I am traveling to Gurgaon for an event tomorrow."
             **Output:** {{"request_type": "Travelling", "dates": ["2025-03-21"], "reason": "event"}}
 
-            - **Message:** "I will be a available on next friday"
-            **Output:** {{"request_type": "Leave Cancellation", "dates": ["2025-03-28"], "reason": "event"}}
-
             - **Message:** "Good morning team!"
             **Output:** {{"request_type": "Useless", "dates": [], "reason": ""}}
 
-            ---
-            
-            **User ID:** {user_id}  
-            **Message:** "{message}"
+        ---
+        
+        **User ID:** {user_id}  
+        **Message:** "{message}"
+
+        **Output Format (JSON):**
+        {{
+          "request_type": "Classification",
+          "dates": ["YYYY-MM-DD", ...],
+          "reason": "Reason for the request (if any)"
+        }}
         """
 
         model = "gemini-2.0-flash"
@@ -105,8 +177,6 @@ class LeaveProcessor(BaseProcessor):
             response_mime_type="application/json",
         )
 
-
-
         try:
             response = self.ai_client.models.generate_content(
                 model=model, 
@@ -115,15 +185,19 @@ class LeaveProcessor(BaseProcessor):
             )
             
             if response and response.text:
-                return eval(response.text.strip())
+                import json
+                try:
+                    return json.loads(response.text.strip())
+                except json.JSONDecodeError as e:
+                    print(f"Error decoding JSON: {e}, response: {response.text}")
+                    return {"request_type": "Useless", "dates": [], "reason": ""}
             
         except Exception as e:
             print(f"Error calling Gemini API: {e}")
         
         return {"request_type": "Useless", "dates": [], "reason": ""}
     
-
-    
+    # The rest of the methods remain the same as in the previous version
     def handle_new_message(self, event):
         """Process a new message"""
         message = event.get("text", "")
@@ -162,7 +236,6 @@ class LeaveProcessor(BaseProcessor):
                 
                 try:
                     result = self.collection.insert_one(leave_request)
-                    print("Inserted : ", leave_request)
                     print(f"Stored in MongoDB: {result.inserted_id}")
                 except Exception as e:
                     print(f"Database insertion failed: {e}")
@@ -196,7 +269,7 @@ class LeaveProcessor(BaseProcessor):
         message_time = datetime.fromtimestamp(float(message_id), tz=timezone.utc)
         current_time = datetime.now(timezone.utc)
         
-        if self.message_exists(message_id) and (current_time - message_time).total_seconds() > 2:  # 2 hours
+        if self.message_exists(message_id) and (current_time - message_time).total_seconds() > 7200:  # 2 hours
             print("Deletion failed: Time exceeded 2 hours.")
             
             leave_entries = list(self.collection.find({"messageid": message_id}))
@@ -299,4 +372,4 @@ class LeaveProcessor(BaseProcessor):
                 if user_info:
                     self.collection_user.insert_one(user_info)
         
-        print("Database is now in sync with Slack channel! Leave-HRBP")
+        print("Database is now in sync with Slack channel!")
