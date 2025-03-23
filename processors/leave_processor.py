@@ -5,11 +5,11 @@ import re
 from slack_sdk import WebClient
 from google import genai
 from google.genai import types
-
+from datetime import datetime, timedelta
 from processors.base_processor import BaseProcessor
 from config import get_config
 from database import get_mongo_client
-from dictionary.leave_keywords_dictionary import KEYWORD_PATTERNS, DATE_PATTERNS
+from dictionary.leave_keywords_dictionary import KEYWORD_PATTERNS
 
 class LeaveProcessor(BaseProcessor):
     """Processor for leave-related messages"""
@@ -32,7 +32,6 @@ class LeaveProcessor(BaseProcessor):
         self.ai_client = genai.Client(api_key=config["GEMINI_API_KEY"])
         
         self.keyword_patterns = KEYWORD_PATTERNS
-        self.date_patterns = DATE_PATTERNS
     
     def classify_message_by_keywords(self, message):
         """Classify message based on keywords"""
@@ -47,6 +46,8 @@ class LeaveProcessor(BaseProcessor):
                     # Extract reason (simple implementation - everything after "reason" or "because")
                     reason_match = re.search(r'(?:reason|because|due to|as)\s*:?\s*(.*)', message_lower)
                     reason = reason_match.group(1).strip() if reason_match else ""
+
+                    print(category, dates, reason)
                     
                     return {
                         "request_type": category,
@@ -57,36 +58,76 @@ class LeaveProcessor(BaseProcessor):
         return None
     
     def extract_dates(self, message):
-        """Extract dates from a message"""
         message_lower = message.lower()
         today = datetime.now()
         dates = []
-        
-        # Handle today/tomorrow
-        if "today" in message_lower:
-            dates.append(today.strftime("%Y-%m-%d"))
-        if any(word in message_lower for word in ["tomorrow", "tmrw"]):
-            tomorrow = today.replace(day=today.day + 1)
-            dates.append(tomorrow.strftime("%Y-%m-%d"))
-        
-        # Example: Detect DD/MM/YYYY or DD/MM
-        date_matches = re.finditer(r'\b(\d{1,2})[/\-\.](\d{1,2})(?:[/\-\.](?:20)?(\d{2}))?\b', message_lower)
-        for match in date_matches:
+
+        # Today/tomorrow/tomo/tmrw
+        if any(word in message_lower for word in ["today", "tomorrow", "tmrw", "tomo"]):
+            if "today" in message_lower:
+                dates.append(today.strftime("%Y-%m-%d"))
+            if any(word in message_lower for word in ["tomorrow", "tmrw", "tomo"]):
+                tomorrow = today + timedelta(days=1)
+                dates.append(tomorrow.strftime("%Y-%m-%d"))
+
+        # DD/MM, DD-MM, DD.MM format
+        match = re.search(r'\b(\d{1,2})[/\-\.](\d{1,2})(?:[/\-\.](?:20)?\d{2})?\b', message_lower)
+        if match:
             day, month = int(match.group(1)), int(match.group(2))
-            year = int(match.group(3)) if match.group(3) else today.year
-            if year < 100:  # Handle two-digit years
-                year += 2000
             try:
-                # Validate date
-                if 1 <= day <= 31 and 1 <= month <= 12:
-                    date_str = f"{year}-{month:02d}-{day:02d}"
-                    if date_str not in dates:
-                        dates.append(date_str)
+                date_obj = datetime(today.year, month, day)
+                date_str = date_obj.strftime("%Y-%m-%d")
+                dates.append(date_str)
             except ValueError:
-                pass
-                
+                pass  # Invalid date like Feb 30
+
+        # DD Month format
+        match = re.search(r'\b(\d{1,2})(?:st|nd|rd|th)? (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)(?:uary|ruary|ch|il|e|y|ust|tember|ober|ember)?\b', message_lower)
+        if match:
+            day = int(match.group(1))
+            month_str = match.group(2)[:3].lower()
+            month_map = {'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+                        'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12}
+            month = month_map.get(month_str)
+            if month:
+                try:
+                    date_obj = datetime(today.year, month, day)
+                    dates.append(date_obj.strftime("%Y-%m-%d"))
+                except ValueError:
+                    pass
+
+        # Month DD format
+        match = re.search(r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)(?:uary|ruary|ch|il|e|y|ust|tember|ober|ember)? (\d{1,2})(?:st|nd|rd|th)?\b', message_lower)
+        if match:
+            month_str = match.group(1)[:3].lower()
+            day = int(match.group(2))
+            month = month_map.get(month_str)
+            if month:
+                try:
+                    date_obj = datetime(today.year, month, day)
+                    dates.append(date_obj.strftime("%Y-%m-%d"))
+                except ValueError:
+                    pass
+
+        # Next week/month pattern
+        matches = re.findall(r'next (mon|tue|wed|thu|fri|sat|sun|week|month)', message_lower)
+        day_map = {'mon': 0, 'tue': 1, 'wed': 2, 'thu': 3, 'fri': 4, 'sat': 5, 'sun': 6}
         
+        for time_unit in matches:
+            if time_unit in day_map:
+                target_day = day_map[time_unit]
+                days_ahead = (target_day - today.weekday() + 7) % 7
+                next_day = today + timedelta(days=days_ahead)
+                dates.append(next_day.strftime("%Y-%m-%d"))
+            elif time_unit == 'wee':
+                next_week = today + timedelta(days=7)
+                dates.append(next_week.strftime("%Y-%m-%d"))
+            elif time_unit == 'mon':
+                next_month = today.replace(month=(today.month % 12) + 1, day=1)
+                dates.append(next_month.strftime("%Y-%m-%d"))
+
         return dates
+
     
     def classify_message(self, message, user_id):
         """Classify leave messages using keywords first, fall back to Gemini API"""
