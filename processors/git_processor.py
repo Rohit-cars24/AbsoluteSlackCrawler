@@ -48,8 +48,17 @@ class GitProcessor(BaseProcessor):
         - Extract the **PR number** if mentioned.
         - Extract the **purpose** or **description** if explicitly mentioned.
 
-        **User ID:** {user_id}  
+        **User ID:** {user_id}
         **Message:** "{message}"
+        
+        **Output Format (JSON):**
+        {{
+        "request_type": "Classification",
+        "repository": "Repository Name (if any)",
+        "branch": "Branch Name (if any)",
+        "pr_number": "PR Number (if any)",
+        "purpose": "Purpose/Description (if any)"
+        }}
         """
 
         model = "gemini-2.0-flash"
@@ -67,24 +76,26 @@ class GitProcessor(BaseProcessor):
             response_mime_type="application/json",
         )
 
-
-
         try:
             response = self.ai_client.models.generate_content(
-                model=model, 
-                contents=contents, 
-                config=generate_content_config
+                model=model,
+                contents=contents,
+                config=generate_content_config,
             )
-            
+
             if response and response.text:
-                return eval(response.text.strip())
-            
+                import json
+                try:
+                    return json.loads(response.text.strip())
+                except json.JSONDecodeError as e:
+                    print(f"Error decoding JSON: {e}, response: {response.text}")
+                    return {"request_type": "Useless", "repository": "", "branch": "", "pr_number": "", "purpose": ""}
+
         except Exception as e:
             print(f"Error calling Gemini API: {e}")
 
-        
         return {"request_type": "Useless", "repository": "", "branch": "", "pr_number": "", "purpose": ""}
-    
+        
     def handle_new_message(self, event):
         """Process a new message"""
         message = event.get("text", "")
