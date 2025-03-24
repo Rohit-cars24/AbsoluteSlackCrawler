@@ -35,13 +35,19 @@ def slack_events():
         
         # Determine channel type based on channel ID
         channel_type = ""  # Default
+
+        channel_map = {}
+
         
         # Map channel IDs to channel types
-        channel_map = {
-            config["LEAVE_CHANNEL_ID"]: "leave",
-            config["GIT_CHANNEL_ID"]: "git",
-            config["JIRA_CHANNEL_ID"]: "jira"
-        }
+        if channel_id in config["LEAVE_CHANNEL_ID"]:
+            channel_map[channel_id] = "leave"
+
+        if channel_id in config["GIT_CHANNEL_ID"]:
+            channel_map[channel_id] = "git"
+
+        if channel_id in config["JIRA_CHANNEL_ID"]:
+            channel_map[channel_id] = "jira"
         
         channel_type = channel_map.get(channel_id, "unknown")
         print(channel_type)

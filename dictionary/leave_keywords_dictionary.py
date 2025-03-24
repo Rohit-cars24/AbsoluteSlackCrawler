@@ -18,6 +18,8 @@ KEYWORD_PATTERNS = {
         r'\bnot coming (?:to office|to work)\b',
         r'\bnot be coming (?:to office|to work)\b',
         r'\btaking off\b',
+        r'\booo\b',
+        r'\bout of office\b',
     ],
     "Sick Leave": [
         r'\bsick leave\b',
@@ -28,8 +30,6 @@ KEYWORD_PATTERNS = {
         r'\bmedical\b',
         r'\bhealth issues?\b',
         r'\bsick\b',
-        r'\bdoctor\b',
-        r'\bhospital\b',
     ],
     "Travelling": [
         r'\btravel(?:ling|ing)? to gurgaon\b',
@@ -45,6 +45,8 @@ KEYWORD_PATTERNS = {
         r'\btime off\b',
         r'\bpersonal leave\b',
         r'\bwill not be available\b',
+        r'\bwont be (available|coming)\b',
+        r'\bnot available\b',
     ],
     "Leave Cancellation": [
         r'\bcancel(?:ing|led|ling)? (?:my )?leave\b',

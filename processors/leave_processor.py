@@ -63,32 +63,48 @@ class LeaveProcessor(BaseProcessor):
         dates = []
 
         # Today/tomorrow/tomo/tmrw
-        if any(word in message_lower for word in ["today", "tomorrow", "tmrw", "tomo"]):
-            if "today" in message_lower:
+        if any(word in message_lower for word in ["today", "tomorrow", "tmrw", "tomo", "tdy"]):
+            if any(word in message_lower for word in ["today", "tdy"]):
                 dates.append(today.strftime("%Y-%m-%d"))
             if any(word in message_lower for word in ["tomorrow", "tmrw", "tomo"]):
                 tomorrow = today + timedelta(days=1)
                 dates.append(tomorrow.strftime("%Y-%m-%d"))
 
+        if re.search(r'\bnext(\s+(week|month))?\b', message.lower()):
+            return dates  # Skip next week/month for now
+
         # DD/MM, DD-MM, DD.MM format
-        match = re.search(r'\b(\d{1,2})[/\-\.](\d{1,2})(?:[/\-\.](?:20)?\d{2})?\b', message_lower)
-        if match:
-            day, month = int(match.group(1)), int(match.group(2))
+        match_iter = re.finditer(r'\b(\d{1,2})[/\-\.](\d{1,2})(?:[/\-\.](\d{2,4}))?\b', message)
+        for match in match_iter:
+            if not match:
+                continue
+            day, month = match.group(1), match.group(2)
+            if not day or not month:
+                continue
+            day, month = int(day), int(month)
+            year = int(match.group(3)) if match.group(3) else today.year
+            if match.group(3) and len(match.group(3)) == 2:
+                year += 2000
             try:
-                date_obj = datetime(today.year, month, day)
-                date_str = date_obj.strftime("%Y-%m-%d")
-                dates.append(date_str)
+                date_obj = datetime(year, month, day)
+                dates.append(date_obj.strftime("%Y-%m-%d"))
             except ValueError:
-                pass  # Invalid date like Feb 30
+                pass 
 
         # DD Month format
-        match = re.search(r'\b(\d{1,2})(?:st|nd|rd|th)? (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)(?:uary|ruary|ch|il|e|y|ust|tember|ober|ember)?\b', message_lower)
-        if match:
+        match_iter = re.finditer(r'\b(\d{1,2})(?:st|nd|rd|th)?\s+'
+            r'(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)'
+            r'(?:uary|ruary|ch|il|e|y|ust|tember|ober|ember)?\b',
+            message_lower, re.IGNORECASE)
+
+        month_map = {'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+                'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12}
+
+        for match in match_iter:
             day = int(match.group(1))
             month_str = match.group(2)[:3].lower()
-            month_map = {'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
-                        'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12}
             month = month_map.get(month_str)
+            
             if month:
                 try:
                     date_obj = datetime(today.year, month, day)
@@ -97,34 +113,46 @@ class LeaveProcessor(BaseProcessor):
                     pass
 
         # Month DD format
-        match = re.search(r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)(?:uary|ruary|ch|il|e|y|ust|tember|ober|ember)? (\d{1,2})(?:st|nd|rd|th)?\b', message_lower)
-        if match:
-            month_str = match.group(1)[:3].lower()
-            day = int(match.group(2))
+        match_iter = re.finditer(r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)'
+                             r'(?:uary|ruary|ch|il|e|y|ust|tember|ober|ember)?\s+'
+                             r'(\d{1,2})(?:st|nd|rd|th)?\b', message, re.IGNORECASE)
+    
+        month_map = {'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+                    'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12}
+
+        for match in match_iter:
+            month_str = match.group(1)[:3].lower()  # Get first 3 letters of month
+            day = int(match.group(2))  # Extract day
             month = month_map.get(month_str)
+
             if month:
                 try:
                     date_obj = datetime(today.year, month, day)
                     dates.append(date_obj.strftime("%Y-%m-%d"))
                 except ValueError:
-                    pass
+                    pass  # Ignore invalid dates (e.g., Feb 30)
 
-        # Next week/month pattern
-        matches = re.findall(r'next (mon|tue|wed|thu|fri|sat|sun|week|month)', message_lower)
-        day_map = {'mon': 0, 'tue': 1, 'wed': 2, 'thu': 3, 'fri': 4, 'sat': 5, 'sun': 6}
-        
-        for time_unit in matches:
-            if time_unit in day_map:
-                target_day = day_map[time_unit]
-                days_ahead = (target_day - today.weekday() + 7) % 7
-                next_day = today + timedelta(days=days_ahead)
-                dates.append(next_day.strftime("%Y-%m-%d"))
-            elif time_unit == 'wee':
-                next_week = today + timedelta(days=7)
-                dates.append(next_week.strftime("%Y-%m-%d"))
-            elif time_unit == 'mon':
-                next_month = today.replace(month=(today.month % 12) + 1, day=1)
-                dates.append(next_month.strftime("%Y-%m-%d"))
+        # This week
+        match = re.search(r'\b(mon|tue|wed|thu|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b', message.lower())
+
+        day_map = {
+            'mon': 0, 'monday': 0, 
+            'tue': 1, 'tuesday': 1, 
+            'wed': 2, 'wednesday': 2, 
+            'thu': 3, 'thursday': 3, 
+            'fri': 4, 'friday': 4, 
+            'sat': 5, 'saturday': 5, 
+            'sun': 6, 'sunday': 6
+        }
+
+        if match:
+            target_day = day_map[match.group(1)]
+            days_ahead = (target_day - today.weekday() + 7) % 7
+            if days_ahead == 0:  # If today is the same day, move to next week's occurrence
+                days_ahead = 7
+
+            next_day = today + timedelta(days=days_ahead)
+            dates.append(next_day.strftime("%Y-%m-%d"))
 
         return dates
 
@@ -177,6 +205,9 @@ class LeaveProcessor(BaseProcessor):
 
             - **Message:** "I am not coming to office tomorrow."
             **Output:** {{"request_type": "Planned Leave", "dates": ["2025-03-21"], "reason": "personal reasons"}}
+
+            - **Message:** "will be unavailable from 2:00 to 5:00 since need to take my daughter for vaccination and doctor checkup"
+            **Output:** {{"request_type": "Useless", "dates": [], "reason": ""}}
 
             - **Message:** "I will not be coming to office on monday and tuesday as mentioned earlier."
             **Output:** {{"request_type": "Planned Leave", "dates": ["2025-03-24", ["2025-03-25"]], "reason": "personal reasons"}}
@@ -251,7 +282,6 @@ class LeaveProcessor(BaseProcessor):
         leave_data = self.classify_message(message, user_id)
         request_type = leave_data.get("request_type", "Useless")
         dates = leave_data.get("dates", [])
-        reason = leave_data.get("reason", "")
         
         if request_type == "Leave Cancellation" and dates:
             print("Message classified as leave cancellation")
