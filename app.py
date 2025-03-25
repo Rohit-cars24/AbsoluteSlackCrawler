@@ -3,8 +3,8 @@ import threading
 import logging
 from datetime import datetime
 
-from config import get_config
-from factory import ChannelProcessorFactory
+from config.config import get_config
+from core.factory import ChannelProcessorFactory
 
 app = Flask(__name__)
 config = get_config()

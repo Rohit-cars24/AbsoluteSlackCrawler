@@ -1,5 +1,5 @@
-from processors.leave_processor import LeaveProcessor
-from processors.git_processor import GitProcessor
+from processors.impl.leave_processor import LeaveProcessor
+from processors.impl.git_processor import GitProcessor
 # from processors.jira_processor import JiraProcessor
 
 class ChannelProcessorFactory:

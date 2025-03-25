@@ -5,8 +5,8 @@ from google import genai
 from google.genai import types
 
 from processors.base_processor import BaseProcessor
-from config import get_config
-from database import get_mongo_client
+from config.config import get_config
+from config.database import get_mongo_client
 
 class GitProcessor(BaseProcessor):
     """Processor for git-related messages"""

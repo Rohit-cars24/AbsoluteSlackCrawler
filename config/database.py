@@ -1,5 +1,5 @@
 import pymongo
-from config import get_config
+from config.config import get_config
 
 # Global MongoDB client to be reused
 _mongo_client = None

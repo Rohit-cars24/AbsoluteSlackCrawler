@@ -7,8 +7,8 @@ from google import genai
 from google.genai import types
 from datetime import datetime, timedelta
 from processors.base_processor import BaseProcessor
-from config import get_config
-from database import get_mongo_client
+from config.config import get_config
+from config.database import get_mongo_client
 from dictionary.leave_keywords_dictionary import KEYWORD_PATTERNS
 
 class LeaveProcessor(BaseProcessor):
@@ -186,7 +186,7 @@ class LeaveProcessor(BaseProcessor):
             - If classified as **"WFH"**, **"Unplanned Leave"**, **"Sick Leave"**, **"Planned Leave"**, or **"Travelling"**, extract the **date(s)** mentioned.
             - Extract the **reason** for the request if explicitly mentioned.
 
-            **Assume today's date is 2025-03-20.**
+            **Assume today's date is 2025-03-20. But make user that today and tomorrow requests if they come, take today's actual date and give me accordingly for dates**
 
             ---
             **Example Inputs & Outputs:**
@@ -304,6 +304,8 @@ class LeaveProcessor(BaseProcessor):
                     'message': message,
                     'created_by': user_id,
                 }
+
+                self.remove_request_db(user_id, leave_date)
                 
                 try:
                     result = self.collection.insert_one(leave_request)
@@ -381,6 +383,11 @@ class LeaveProcessor(BaseProcessor):
                 print(f"User {user_id} added to the database.")
             else:
                 print(f"Failed to fetch details for {user_id}")
+
+    def remove_request_db(self, user_id, date):
+        """Remove leave requests from database"""
+        result = self.collection.delete_many({"userid": user_id, "date": date})
+        print(f"Deleted {result.deleted_count} leave request(s) for {user_id} on date: {date}")
     
     def delete_from_db(self, message_id):
         """Delete records from database by message ID"""

@@ -30,6 +30,7 @@ KEYWORD_PATTERNS = {
         r'\bmedical\b',
         r'\bhealth issues?\b',
         r'\bsick\b',
+        r'\bnot feeling well\b',
     ],
     "Travelling": [
         r'\btravel(?:ling|ing)? to gurgaon\b',
@@ -47,6 +48,7 @@ KEYWORD_PATTERNS = {
         r'\bwill not be available\b',
         r'\bwont be (available|coming)\b',
         r'\bnot available\b',
+        r'\bnot coming\b',
     ],
     "Leave Cancellation": [
         r'\bcancel(?:ing|led|ling)? (?:my )?leave\b',
