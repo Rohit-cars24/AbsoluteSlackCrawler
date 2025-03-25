@@ -5,12 +5,24 @@ from datetime import datetime
 
 from config.config import get_config
 from core.factory import ChannelProcessorFactory
+from config.database import get_mongo_client
 
 app = Flask(__name__)
 config = get_config()
 
 # Create a factory to generate the appropriate processor based on channel type
 channel_factory = ChannelProcessorFactory()
+
+def get_channel_type(db, channel_id):
+    channel_map = {}
+    channels = db.channel_ids.find({})
+    
+    for channel in channels:
+        if channel_id in channel["channel_id"]:
+            channel_map[channel_id] = channel["channel_name"].lower().replace("_channel", "")
+    
+    return channel_map.get(channel_id, "unknown")
+
 
 def handle_event(event, channel_type):
     with app.app_context():
@@ -29,36 +41,26 @@ def slack_events():
     if "challenge" in data:
         return jsonify({"challenge": data["challenge"]})
     
+    mongo_client = get_mongo_client()
+    db = mongo_client["hrbp"]
+    
     if "event" in data:
         event = data["event"]
         channel_id = event.get("channel", "")
         
-        # Determine channel type based on channel ID
-        channel_type = ""  # Default
+        channel = get_channel_type(db, channel_id)
+        print("Channel fetched : ", channel)
 
-        channel_map = {}
-
-        
-        # Map channel IDs to channel types
-        if channel_id in config["LEAVE_CHANNEL_ID"]:
-            channel_map[channel_id] = "leave"
-
-        if channel_id in config["GIT_CHANNEL_ID"]:
-            channel_map[channel_id] = "git"
-
-        if channel_id in config["JIRA_CHANNEL_ID"]:
-            channel_map[channel_id] = "jira"
-        
-        channel_type = channel_map.get(channel_id, "unknown")
-        print(channel_type)
-
-        threading.Thread(target=handle_event, args=(event, channel_type)).start()
+        threading.Thread(target=handle_event, args=(event, channel)).start()
         
     return jsonify({"status": "OK"}), 200
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     logging.info("Starting Flask server...")
+
+    mongo_client = get_mongo_client()
+    db = mongo_client["hrbp"]
     
     for processor_type in ["leave", "git", "jira"]:
         processor = channel_factory.get_processor(processor_type)

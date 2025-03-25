@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 from processors.base_processor import BaseProcessor
 from config.config import get_config
 from config.database import get_mongo_client
-from dictionary.leave_keywords_dictionary import KEYWORD_PATTERNS
 
 class LeaveProcessor(BaseProcessor):
     """Processor for leave-related messages"""
@@ -20,39 +19,45 @@ class LeaveProcessor(BaseProcessor):
         
         # Set up MongoDB collections
         mongo_client = get_mongo_client()
-        db = mongo_client["hrbp"]
-        self.collection = db["Attendance"]
-        self.collection_user = db["profiles"]
-        
+        self.db = mongo_client["hrbp"]
+        self.collection = self.db["Attendance"]
+        self.collection_user = self.db["profiles"]
+        self.keyword_patterns = self.db["load_keyword_patterns"]
+
         # Set up Slack client
         self.slack_client = WebClient(config["SLACK_BOT_TOKEN"])
         self.channel_id = config["LEAVE_CHANNEL_ID"]
         
         # Set up Gemini client
         self.ai_client = genai.Client(api_key=config["GEMINI_API_KEY"])
+
+        self.keyword_patterns = self.load_keyword_patterns()
+
+    def load_keyword_patterns(self):
+        """Fetch keyword patterns from MongoDB."""
+        keyword_patterns = {}
+        for entry in self.db.keyword_patterns.find({}, {"_id": 0, "category": 1, "patterns": 1}):
+            keyword_patterns[entry["category"]] = entry["patterns"]
+        return keyword_patterns
         
-        self.keyword_patterns = KEYWORD_PATTERNS
     
     def classify_message_by_keywords(self, message):
         """Classify message based on keywords"""
         message_lower = message.lower()
+
+        self.keywords_pattern = self.load_keyword_patterns()
         
         # Check each category's patterns
         for category, patterns in self.keyword_patterns.items():
             for pattern in patterns:
                 if re.search(pattern, message_lower):
-                    # Extract dates if a category is found
                     dates = self.extract_dates(message)
-                    # Extract reason (simple implementation - everything after "reason" or "because")
-                    reason_match = re.search(r'(?:reason|because|due to|as)\s*:?\s*(.*)', message_lower)
-                    reason = reason_match.group(1).strip() if reason_match else ""
 
-                    print(category, dates, reason)
+                    print(category, dates)
                     
                     return {
                         "request_type": category,
                         "dates": dates,
-                        "reason": reason
                     }
         
         return None
