@@ -21,11 +21,5 @@ class ChannelProcessorFactory:
     def get_processor(self, channel_type):
         """
         Get appropriate processor based on channel type
-        
-        Args:
-            channel_type (str): Type of channel ("leave", "git", "jira", etc.)
-            
-        Returns:
-            BaseProcessor: Appropriate processor for the channel type
         """
         return self.processors.get(channel_type)

@@ -341,13 +341,17 @@ class LeaveProcessor(BaseProcessor):
         """Process a deleted message"""
         message_id = event.get("deleted_ts", "")
         user_id = event.get("previous_message", {}).get("user", "")
+
+        channel_id = event.get("channel")
         
         print(f"Deleted leave message detected (Message ID: {message_id})")
         
         message_time = datetime.fromtimestamp(float(message_id), tz=timezone.utc)
         current_time = datetime.now(timezone.utc)
+
+        print(f"Current time: {current_time}, Message time: {message_time}")
         
-        if self.message_exists(message_id) and (current_time - message_time).total_seconds() > 7200:  # 2 hours
+        if self.message_exists(message_id) and (current_time - message_time).total_seconds() > 2:  # 2 hours
             print("Deletion failed: Time exceeded 2 hours.")
             
             leave_entries = list(self.collection.find({"messageid": message_id}))
@@ -363,7 +367,7 @@ class LeaveProcessor(BaseProcessor):
             print(delete_message)
             
             self.slack_client.chat_postEphemeral(
-                channel=self.channel_id,
+                channel=channel_id,
                 user=user_id,
                 text=delete_message
             )
@@ -380,6 +384,10 @@ class LeaveProcessor(BaseProcessor):
         """Process a user joining channel"""
         user_id = event.get("user")
         print(f"New user joined leave channel: {user_id}")
+
+        channel_id = event.get("channel")
+        print('////////////////////////')
+        print(f"Channel ID: {channel_id}")
         
         if not self.collection_user.find_one({"slackid": user_id}):
             user_info = self.fetch_user_profile(user_id)
