@@ -20,6 +20,8 @@ class BaseProcessor(ABC):
         Args:
             event (dict): Slack event data
         """
+        if "subtype" in event and event["subtype"] == "bot_message":
+            return
         if event.get("subtype") == "message_changed":
             self.handle_message_changed(event)
         elif event.get("subtype") == "message_deleted":
@@ -29,19 +31,6 @@ class BaseProcessor(ABC):
         else:
             self.handle_new_message(event)
     
-    # @abstractmethod
-    # def classify_message(self, message, user_id):
-    #     """
-    #     Classify the message using AI
-        
-    #     Args:
-    #         message (str): Message text
-    #         user_id (str): User ID
-            
-    #     Returns:
-    #         dict: Classification results
-    #     """
-    #     pass
     
     @abstractmethod
     def handle_new_message(self, event):

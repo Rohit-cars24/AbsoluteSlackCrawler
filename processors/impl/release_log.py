@@ -1,16 +1,16 @@
-
-
+import pandas as pd
 from datetime import datetime, timezone, date
 from flask import jsonify
 import requests
 import re
 from slack_sdk import WebClient
 from google import genai
-from google.genai import types
-from datetime import datetime, timedelta
+from datetime import datetime
 from processors.base_processor import BaseProcessor
 from config.config import get_config
 from config.database import get_mongo_client
+from slack_sdk.errors import SlackApiError
+import os
 
 class ReleaseLogProcessor(BaseProcessor):
     """Processor for leave-related messages"""
@@ -32,7 +32,54 @@ class ReleaseLogProcessor(BaseProcessor):
         
         # Set up Gemini client
         self.ai_client = genai.Client(api_key=config["GEMINI_API_KEY"])
+
+
     
+    def fetch_data(self, from_date, to_date):
+        """Fetch records from MongoDB within the given date range."""
+        # Convert dates to string format as stored in MongoDB
+        from_date_str = datetime.strptime(from_date, "%Y-%m-%d").strftime("%Y-%m-%d")
+        to_date_str = datetime.strptime(to_date, "%Y-%m-%d").strftime("%Y-%m-%d")
+
+        query = {
+            "date": {"$gte": from_date_str, "$lte": to_date_str}  # Compare as strings
+        }
+        records = self.collection.find(query, {"_id": 0, "date": 1, "username": 1, "message": 1})
+
+        return list(records)
+
+    def generate_excel_report(self, from_date, to_date, output_file="report.xlsx"):
+        """Generate an Excel report from MongoDB data."""
+        print(f"Generating report from {from_date} to {to_date}...")
+        data = self.fetch_data(from_date, to_date)
+        print(data)
+        
+        if not data:
+            return None
+        
+        df = pd.DataFrame(data)
+        df.to_excel(output_file, index=False, engine="openpyxl")
+        
+        return output_file
+
+    def send_file_to_slack(self, file_path, channel_id):
+        """Send a file to Slack channel."""
+        try:
+            if not os.path.exists(file_path):
+                print("Error: File not found!")
+                return
+            
+            response = self.slack_client.files_upload(
+                channels=channel_id,
+                file=file_path,
+                title="Generated Report",
+                initial_comment="Here is your requested report 📄"
+            )
+            print("File uploaded successfully!", response)
+        
+        except SlackApiError as e:
+            print(f"Error uploading file: {e.response['error']}")
+
 
     def load_keyword_patterns(self):
         """Fetch keyword patterns from MongoDB."""
