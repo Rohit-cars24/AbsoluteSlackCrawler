@@ -1,3 +1,5 @@
+
+
 from datetime import datetime, timezone
 from flask import jsonify
 import requests
@@ -22,7 +24,8 @@ class LeaveProcessor(BaseProcessor):
         self.db = mongo_client["hrbp"]
         self.collection = self.db["Attendance"]
         self.collection_user = self.db["profiles"]
-        self.keyword_patterns = self.db["load_keyword_patterns"]
+        
+        self.audit_collection = self.db["AttendanceAudit"] 
 
         # Set up Slack client
         self.slack_client = WebClient(config["SLACK_BOT_TOKEN"])
@@ -30,14 +33,14 @@ class LeaveProcessor(BaseProcessor):
         
         # Set up Gemini client
         self.ai_client = genai.Client(api_key=config["GEMINI_API_KEY"])
-
-        self.keyword_patterns = self.load_keyword_patterns()
+    
 
     def load_keyword_patterns(self):
         """Fetch keyword patterns from MongoDB."""
         keyword_patterns = {}
         for entry in self.db.keyword_patterns.find({}, {"_id": 0, "category": 1, "patterns": 1}):
             keyword_patterns[entry["category"]] = entry["patterns"]
+
         return keyword_patterns
         
     
@@ -45,10 +48,10 @@ class LeaveProcessor(BaseProcessor):
         """Classify message based on keywords"""
         message_lower = message.lower()
 
-        self.keywords_pattern = self.load_keyword_patterns()
+        keywords_patterns = self.load_keyword_patterns()
         
         # Check each category's patterns
-        for category, patterns in self.keyword_patterns.items():
+        for category, patterns in keywords_patterns.items():
             for pattern in patterns:
                 if re.search(pattern, message_lower):
                     dates = self.extract_dates(message)
@@ -277,6 +280,7 @@ class LeaveProcessor(BaseProcessor):
     # The rest of the methods remain the same as in the previous version
     def handle_new_message(self, event):
         """Process a new message"""
+        self.handle_audit_for_message(event, "NEW")
         message = event.get("text", "")
         user_id = event.get("user", "")
         message_id = event.get("ts", "")
@@ -322,6 +326,7 @@ class LeaveProcessor(BaseProcessor):
     
     def handle_message_changed(self, event):
         """Process an edited message"""
+        self.handle_audit_for_message(event, "EDIT")
         message = event["message"].get("text", "")
         user_id = event["message"].get("user", "")
         message_id = event["message"].get("ts", "")
@@ -378,6 +383,8 @@ class LeaveProcessor(BaseProcessor):
             }), 400
         
         self.delete_from_db(message_id)
+        self.handle_audit_for_message(event,"DELETE")
+
         return jsonify({"status": "success", "message": "Deleted from DB"}), 200
     
     def handle_channel_join(self, event):
@@ -464,3 +471,67 @@ class LeaveProcessor(BaseProcessor):
                     self.collection_user.insert_one(user_info)
         
         print("Database is now in sync with Slack channel!")
+
+
+    def create_audit_entry(self, user_id, full_message, action, reference_id=None, message_id=None):
+        """Creates an audit entry in AttendanceAudit collection"""
+        user_info = self.fetch_user_profile(user_id)
+        username = user_info.get("name", "Unknown")
+        created_timestamp = datetime.now(timezone.utc)
+
+        audit_entry = {
+            "username": username,
+            "userid": user_id,
+            "Full message": full_message,
+            "created timestamp": created_timestamp,
+            "Action": action,
+            "message_id": message_id  # Store Slack's message timestamp
+        }
+
+        # Add reference for EDIT/DELETE actions
+        if action in ["EDIT", "DELETE"] and reference_id:
+            audit_entry["reference"] = reference_id
+
+        # Insert into AttendanceAudit collection
+        result = self.audit_collection.insert_one(audit_entry)
+        return result.inserted_id
+
+    def handle_audit_for_message(self, event, action):
+        """Handles audit entries for NEW, EDIT, or DELETE actions"""
+        if action == "NEW":
+            message = event.get("text", "")
+            user_id = event.get("user", "")
+            message_id = event.get("ts", "")
+        elif action == "EDIT":
+            message = event.get("message", {}).get("text", "")
+            user_id = event.get("message", {}).get("user", "")
+            message_id = event.get("message", {}).get("ts", "")
+        elif action == "DELETE":
+            message = event.get("previous_message", {}).get("text", "")
+            user_id = event.get("previous_message", {}).get("user", "")
+            message_id = event.get("previous_message", {}).get("ts", "")
+
+        if not message or not user_id:
+            print(f"Ignoring event: No message or user_id found for action {action}")
+            return
+
+        if action == "NEW":
+            self.create_audit_entry(user_id, message, "NEW", message_id=message_id)
+        else:
+            # For EDIT/DELETE, find previous audit entry by message_id
+            previous_audit = self.audit_collection.find_one(
+                {"message_id": message_id},
+                sort=[("created timestamp", -1)]
+            )
+
+            if previous_audit:
+                self.create_audit_entry(
+                    user_id, 
+                    message, 
+                    action, 
+                    reference_id=previous_audit["_id"],
+                    message_id=message_id
+                )
+            else:
+                self.create_audit_entry(user_id, message, "NEW", message_id=message_id)
+

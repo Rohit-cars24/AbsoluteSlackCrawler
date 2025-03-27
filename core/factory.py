@@ -1,6 +1,7 @@
 from processors.impl.leave_processor import LeaveProcessor
 from processors.impl.git_processor import GitProcessor
 # from processors.jira_processor import JiraProcessor
+from processors.impl.release_log import ReleaseLogProcessor
 
 class ChannelProcessorFactory:
     """
@@ -15,6 +16,7 @@ class ChannelProcessorFactory:
         """Register all available processors"""
         self.processors["leave"] = LeaveProcessor()
         self.processors["git"] = GitProcessor()
+        self.processors["release_log"] = ReleaseLogProcessor()
         # self.processors["jira"] = JiraProcessor()
         # Add more processors as needed
     

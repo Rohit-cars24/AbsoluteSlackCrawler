@@ -47,6 +47,7 @@ def slack_events():
     if "event" in data:
         event = data["event"]
         channel_id = event.get("channel", "")
+        print(channel_id)
         
         channel = get_channel_type(db, channel_id)
         print("Channel fetched : ", channel)
