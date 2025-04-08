@@ -49,6 +49,7 @@ class LeaveProcessor(BaseProcessor):
         message_lower = message.lower()
 
         keywords_patterns = self.load_keyword_patterns()
+        print(f"Keywords patterns loaded: {keywords_patterns}")
         
         # Check each category's patterns
         for category, patterns in keywords_patterns.items():
@@ -194,37 +195,37 @@ class LeaveProcessor(BaseProcessor):
             - If classified as **"WFH"**, **"Unplanned Leave"**, **"Sick Leave"**, **"Planned Leave"**, or **"Travelling"**, extract the **date(s)** mentioned.
             - Extract the **reason** for the request if explicitly mentioned.
 
-            **Assume today's date is 2025-03-20. But make user that today and tomorrow requests if they come, take today's actual date and give me accordingly for dates**
+            **For the below input Assume today's date is 2025-04-08(yyyy-mm-dd). But when returning the messages, dates shld be with refernce to the currrent date you get the message But make user that today and tomorrow requests if they come, take today's actual date and give me accordingly for dates. Please dont use the same dates that i have mentioned, check the present date and give today or tomorrow according to the present date**
 
             ---
             **Example Inputs & Outputs:**
             
             - **Message:** "I will be coming to office today."
-            **Output:** {{"request_type": "Leave Cancellation", "dates": ["2025-03-21"], "reason": ""}}
+            **Output:** {{"request_type": "Leave Cancellation", "dates": ["2025-04-08"], "reason": ""}}
 
             - **Message:** "I had applied for leave, but now I will come tomorrow."
-            **Output:** {{"request_type": "Leave Cancellation", "dates": ["2025-03-22"], "reason": ""}}
+            **Output:** {{"request_type": "Leave Cancellation", "dates": ["2025-04-09"], "reason": ""}}
 
             - **Message:** "I won't be on leave next Wednesday."
-            **Output:** {{"request_type": "Leave Cancellation", "dates": ["2025-03-26"], "reason": ""}}
+            **Output:** {{"request_type": "Leave Cancellation", "dates": ["2025-04-09"], "reason": ""}}
 
             - **Message:** "Hey, I will be working from home today due to personal reasons."
-            **Output:** {{"request_type": "WFH", "dates": ["2025-03-20"], "reason": "personal reasons"}}
+            **Output:** {{"request_type": "WFH", "dates": ["2025-04-08"], "reason": "personal reasons"}}
 
             - **Message:** "I am not coming to office tomorrow."
-            **Output:** {{"request_type": "Planned Leave", "dates": ["2025-03-21"], "reason": "personal reasons"}}
+            **Output:** {{"request_type": "Planned Leave", "dates": ["2025-04-09"], "reason": "personal reasons"}}
 
             - **Message:** "will be unavailable from 2:00 to 5:00 since need to take my daughter for vaccination and doctor checkup"
             **Output:** {{"request_type": "Useless", "dates": [], "reason": ""}}
 
             - **Message:** "I will not be coming to office on monday and tuesday as mentioned earlier."
-            **Output:** {{"request_type": "Planned Leave", "dates": ["2025-03-24", ["2025-03-25"]], "reason": "personal reasons"}}
+            **Output:** {{"request_type": "Planned Leave", "dates": ["2025-04-14", "2025-04-15"], "reason": "personal reasons"}}
 
             - **Message:** "I need unplanned leave today because of an emergency."
-            **Output:** {{"request_type": "Unplanned Leave", "dates": ["2025-03-20"], "reason": "emergency"}}
+            **Output:** {{"request_type": "Unplanned Leave", "dates": ["2025-04-08"], "reason": "emergency"}}
 
             - **Message:** "I am traveling to Gurgaon for an event tomorrow."
-            **Output:** {{"request_type": "Travelling", "dates": ["2025-03-21"], "reason": "event"}}
+            **Output:** {{"request_type": "Travelling", "dates": ["2025-04-09"], "reason": "event"}}
 
             - **Message:** "Good morning team!"
             **Output:** {{"request_type": "Useless", "dates": [], "reason": ""}}
